@@ -1,3 +1,9 @@
+//
+//  UIImage+Resize.h
+//
+//  Modified by Alex Jarvis on 12/12/2012.
+//  Copyright (c) 2012 PANAXIOM Ltd. All rights reserved.
+//
 // UIImage+Resize.m
 // Created by Trevor Harmon on 8/5/09.
 // Free for personal or commercial use, with or without modification.
@@ -11,20 +17,22 @@
 
 // Returns a copy of this image that is cropped to the given bounds.
 // The bounds will be adjusted using CGRectIntegral.
-// This method ignores the image's imageOrientation setting.
-- (UIImage *)croppedImage:(CGRect)bounds {
+- (UIImage *)croppedImage:(CGRect)bounds
+{
     CGImageRef imageRef = CGImageCreateWithImageInRect([self CGImage], bounds);
     UIImage *croppedImage = [UIImage imageWithCGImage:imageRef];
     CGImageRelease(imageRef);
     return croppedImage;
 }
 
-// Returns a copy of this image that is squared to the thumbnail size.
-// If transparentBorder is non-zero, a transparent border of the given size will be added around the edges of the thumbnail. (Adding a transparent border of at least one pixel in size has the side-effect of antialiasing the edges of the image when rotating it using Core Animation.)
 - (UIImage *)thumbnailImage:(NSInteger)thumbnailSize
-          transparentBorder:(NSUInteger)borderSize
-               cornerRadius:(NSUInteger)cornerRadius
-       interpolationQuality:(CGInterpolationQuality)quality {
+{
+    return [self thumbnailImage:thumbnailSize interpolationQuality:kCGInterpolationHigh];
+}
+
+- (UIImage *)thumbnailImage:(NSInteger)thumbnailSize
+       interpolationQuality:(CGInterpolationQuality)quality
+{
     UIImage *resizedImage = [self resizedImageWithContentMode:UIViewContentModeScaleAspectFill
                                                        bounds:CGSizeMake(thumbnailSize, thumbnailSize)
                                          interpolationQuality:quality];
@@ -38,48 +46,70 @@
                                  thumbnailSize);
     UIImage *croppedImage = [resizedImage croppedImage:cropRect];
     
+    return croppedImage;
+}
+
+// Returns a copy of this image that is squared to the thumbnail size.
+// If transparentBorder is non-zero, a transparent border of the given size will be added around the edges of the thumbnail. (Adding a transparent border of at least one pixel in size has the side-effect of antialiasing the edges of the image when rotating it using Core Animation.)
+- (UIImage *)thumbnailImage:(NSInteger)thumbnailSize
+          transparentBorder:(NSUInteger)borderSize
+               cornerRadius:(NSUInteger)cornerRadius
+       interpolationQuality:(CGInterpolationQuality)quality
+{
+    UIImage *croppedImage = [self thumbnailImage:thumbnailSize interpolationQuality:quality];
+    
     UIImage *transparentBorderImage = borderSize ? [croppedImage transparentBorderImage:borderSize] : croppedImage;
     
     return [transparentBorderImage roundedCornerImage:cornerRadius borderSize:borderSize];
 }
 
-// Returns a rescaled copy of the image, taking into account its orientation
-// The image will be scaled disproportionately if necessary to fit the bounds specified by the parameter
-- (UIImage *)resizedImage:(CGSize)newSize interpolationQuality:(CGInterpolationQuality)quality {
-    BOOL drawTransposed;
-    CGAffineTransform transform = CGAffineTransformIdentity;
+- (UIImage *)resizedImage:(CGSize)newSize
+{
+    return [self resizedImage:newSize interpolationQuality:kCGInterpolationHigh];
+}
+
+// Returns a copy of the image that has been scaled to the new size
+// If the new size is not integral, it will be rounded up
+- (UIImage *)resizedImage:(CGSize)newSize interpolationQuality:(CGInterpolationQuality)quality
+{
+    CGRect newRect = CGRectIntegral(CGRectMake(0, 0, newSize.width, newSize.height));
+    CGRect transposedRect = CGRectMake(0, 0, newRect.size.height, newRect.size.width);
+    CGImageRef imageRef = self.CGImage;
     
-    // In iOS 5 the image is already correctly rotated. See Eran Sandler's
-    // addition here: http://eran.sandler.co.il/2011/11/07/uiimage-in-ios-5-orientation-and-resize/
+    CGContextRef bitmap = CGBitmapContextCreate(NULL,
+                                                newRect.size.width,
+                                                newRect.size.height,
+                                                CGImageGetBitsPerComponent(imageRef),
+                                                CGImageGetBytesPerRow(imageRef),
+                                                CGImageGetColorSpace(imageRef),
+                                                CGImageGetBitmapInfo(imageRef));
     
-    if ( [[[UIDevice currentDevice] systemVersion] floatValue] >= 5.0 ) 
-    {
-        drawTransposed = NO;  
-    } 
-    else 
-    {    
-        switch ( self.imageOrientation ) 
-        {
-            case UIImageOrientationLeft:
-            case UIImageOrientationLeftMirrored:
-            case UIImageOrientationRight:
-            case UIImageOrientationRightMirrored:
-                drawTransposed = YES;
-                break;
-            default:
-                drawTransposed = NO;
-        }
-        
-        transform = [self transformForOrientation:newSize];
-    } 
+    // Rotate and/or flip the image if required by its orientation
+    CGAffineTransform transform = [self transformForOrientation:newSize];
+    CGContextConcatCTM(bitmap, transform);
     
-    return [self resizedImage:newSize transform:transform drawTransposed:drawTransposed interpolationQuality:quality];
+    // Set the quality level to use when rescaling
+    CGContextSetInterpolationQuality(bitmap, quality);
+    
+    // Draw into the context; this scales the image
+    CGContextDrawImage(bitmap, [self transpose] ? transposedRect : newRect, imageRef);
+    
+    // Get the resized image from the context and a UIImage
+    CGImageRef newImageRef = CGBitmapContextCreateImage(bitmap);
+    UIImage *newImage = [UIImage imageWithCGImage:newImageRef];
+    
+    // Clean up
+    CGContextRelease(bitmap);
+    CGImageRelease(newImageRef);
+    
+    return newImage;
 }
 
 // Resizes the image according to the given content mode, taking into account the image's orientation
 - (UIImage *)resizedImageWithContentMode:(UIViewContentMode)contentMode
                                   bounds:(CGSize)bounds
-                    interpolationQuality:(CGInterpolationQuality)quality {
+                    interpolationQuality:(CGInterpolationQuality)quality
+{
     CGFloat horizontalRatio = bounds.width / self.size.width;
     CGFloat verticalRatio = bounds.height / self.size.height;
     CGFloat ratio;
@@ -105,52 +135,25 @@
 #pragma mark -
 #pragma mark Private helper methods
 
-// Returns a copy of the image that has been transformed using the given affine transform and scaled to the new size
-// The new image's orientation will be UIImageOrientationUp, regardless of the current image's orientation
-// If the new size is not integral, it will be rounded up
-- (UIImage *)resizedImage:(CGSize)newSize
-                transform:(CGAffineTransform)transform
-           drawTransposed:(BOOL)transpose
-     interpolationQuality:(CGInterpolationQuality)quality {
-    CGRect newRect = CGRectIntegral(CGRectMake(0, 0, newSize.width, newSize.height));
-    CGRect transposedRect = CGRectMake(0, 0, newRect.size.height, newRect.size.width);
-    CGImageRef imageRef = self.CGImage;
-    
-    // Fix for a colorspace / transparency issue that affects some types of 
-    // images. See here: http://vocaro.com/trevor/blog/2009/10/12/resize-a-uiimage-the-right-way/comment-page-2/#comment-39951
-        
-	CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
-    CGContextRef bitmap =CGBitmapContextCreate( NULL,
-                                               newRect.size.width,
-                                               newRect.size.height,
-                                               8,
-                                               0,
-                                               colorSpace,
-                                               kCGImageAlphaPremultipliedLast );
-    CGColorSpaceRelease(colorSpace);
-	
-    // Rotate and/or flip the image if required by its orientation
-    CGContextConcatCTM(bitmap, transform);
-    
-    // Set the quality level to use when rescaling
-    CGContextSetInterpolationQuality(bitmap, quality);
-    
-    // Draw into the context; this scales the image
-    CGContextDrawImage(bitmap, transpose ? transposedRect : newRect, imageRef);
-    
-    // Get the resized image from the context and a UIImage
-    CGImageRef newImageRef = CGBitmapContextCreateImage(bitmap);
-    UIImage *newImage = [UIImage imageWithCGImage:newImageRef];
-    
-    // Clean up
-    CGContextRelease(bitmap);
-    CGImageRelease(newImageRef);
-    
-    return newImage;
+- (BOOL)transpose
+{
+    BOOL transpose = NO;
+    switch (self.imageOrientation) {
+        case UIImageOrientationLeft:
+        case UIImageOrientationLeftMirrored:
+        case UIImageOrientationRight:
+        case UIImageOrientationRightMirrored:
+            transpose = YES;
+            break;
+        default:
+            transpose = NO;
+    }
+    return transpose;
 }
 
 // Returns an affine transform that takes into account the image orientation when drawing a scaled image
-- (CGAffineTransform)transformForOrientation:(CGSize)newSize {
+- (CGAffineTransform)transformForOrientation:(CGSize)newSize
+{
     CGAffineTransform transform = CGAffineTransformIdentity;
     
     switch (self.imageOrientation) {
