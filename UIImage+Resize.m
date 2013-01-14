@@ -76,12 +76,13 @@
     CGRect transposedRect = CGRectMake(0, 0, newRect.size.height, newRect.size.width);
     CGImageRef imageRef = self.CGImage;
     
+    CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
     CGContextRef bitmap = CGBitmapContextCreate(NULL,
                                                 newRect.size.width,
                                                 newRect.size.height,
-                                                CGImageGetBitsPerComponent(imageRef),
-                                                CGImageGetBytesPerRow(imageRef),
-                                                CGImageGetColorSpace(imageRef),
+                                                8,
+                                                0,
+                                                colorSpace,
                                                 CGImageGetBitmapInfo(imageRef));
     
     // Rotate and/or flip the image if required by its orientation
