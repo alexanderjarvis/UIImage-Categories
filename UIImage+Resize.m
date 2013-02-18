@@ -84,6 +84,7 @@
                                                 0,
                                                 colorSpace,
                                                 CGImageGetBitmapInfo(imageRef));
+    CGColorSpaceRelease(colorSpace);
     
     // Rotate and/or flip the image if required by its orientation
     CGAffineTransform transform = [self transformForOrientation:newSize];
