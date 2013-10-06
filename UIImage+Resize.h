@@ -32,4 +32,6 @@
                                   bounds:(CGSize)bounds
                     interpolationQuality:(CGInterpolationQuality)quality;
 
+- (CGAffineTransform)transformForOrientation:(CGSize)newSize;
+
 @end
